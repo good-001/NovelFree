@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ThaiNovel - อ่านนิยายออนไลน์ฟรี</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .novel-text { font-family: 'Sarabun', sans-serif; line-height: 1.8; }
+        .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        
+        /* ธีมหน้าต่างอ่านนิยาย */
+        .theme-light { background-color: #ffffff; color: #333333; }
+        .theme-sepia { background-color: #f4ecd8; color: #5b4636; }
+        .theme-dark { background-color: #1a202c; color: #e2e8f0; }
+        
+        /* ตกแต่ง Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-900 flex flex-col min-h-screen">
+
+    <!-- แถบเมนูด้านบน -->
+    <header class="bg-white shadow-sm sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-2 cursor-pointer" onclick="goHome()">
+                <div class="w-10 h-10 bg-green-600 rounded-xl flex items-center justify-center text-white shadow-sm">
+                    <i class="fa-solid fa-book-open text-xl"></i>
+                </div>
+                <span class="text-2xl font-bold text-green-900 tracking-tight hidden sm:block">ThaiNovel</span>
+            </div>
+
+            <div class="flex-1 max-w-xl mx-4 hidden md:block">
+                <div class="relative">
+                    <input type="text" placeholder="ค้นหานิยาย, นักเขียน..." class="w-full bg-gray-100 rounded-full py-2.5 pl-11 pr-4 focus:outline-none focus:ring-2 focus:ring-green-500 transition-all text-sm">
+                    <i class="fa-solid fa-magnifying-glass absolute left-4 top-3.5 text-gray-400"></i>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <button class="text-gray-500 hover:text-green-600 font-medium px-4 transition-colors"><i class="fa-solid fa-user mr-2"></i>เข้าสู่ระบบ</button>
+            </div>
+        </div>
+    </header>
+
+    <!-- พื้นที่แสดงเนื้อหาหลัก -->
+    <main id="app-content" class="flex-1 w-full max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+        <div class="py-20 text-center text-gray-500" id="loading-state">
+            <i class="fa-solid fa-spinner fa-spin text-4xl mb-4 text-green-600"></i><br>กำลังดึงข้อมูลนิยายสนุกๆ จากเซิร์ฟเวอร์...
+        </div>
+    </main>
+
+    <!-- ส่วนท้ายเว็บ -->
+    <footer class="bg-white border-t border-gray-200 mt-auto py-8">
+        <div class="max-w-7xl mx-auto px-4 text-center text-gray-500 text-sm">
+            <div class="font-bold text-lg text-gray-700 mb-2">ThaiNovel</div>
+            <p>&copy; 2026 แพลตฟอร์มอ่านนิยายออนไลน์ อ่านฟรี อัปเดตไว</p>
+        </div>
+    </footer>
+
+    <script>
+        // 🔥 URL เชื่อมต่อกับ Google Apps Script ของคุณ 🔥
+        const GOOGLE_SHEET_API_URL = "https://script.google.com/macros/s/AKfycbzA1ZXHWBEXuwp4Gmu8SEc9q8WKUYi33NA8t1AixdE8PF2rXfklGQ6H6Z6vxCW--39J/exec"; 
+
+        // ตัวแปรเก็บข้อมูลชั่วคราวบนหน้าเว็บ
+        let novels = [];
+        let chapters = [];
+        let state = {
+            view: 'home', 
+            activeNovelId: null,
+            activeChapterId: null,
+            readerSettings: { fontSize: 18, theme: 'theme-light' }
+        };
+
+        // 1. ฟังก์ชันดึงข้อมูลจาก Google Sheets
+        async function loadDataFromExcel() {
+            try {
+                const response = await fetch(GOOGLE_SHEET_API_URL);
+                const data = await response.json();
+                
+                // แปลงข้อมูลหมวดหมู่และยอดวิวให้พร้อมใช้งาน
+                novels = data.novels.map(n => ({
+                    ...n,
+                    views: parseInt(n.views) || 0,
+                    categories: n.categories ? n.categories.toString().split(',').map(s => s.trim()) : []
+                }));
+                chapters = data.chapters || [];
+                
+                render(); // เรียกใช้วาดหน้าจอ
+            } catch (error) {
+                console.error("Error loading data:", error);
+                document.getElementById('loading-state').innerHTML = `
+                    <div class="text-red-500">
+                        <i class="fa-solid fa-circle-xmark text-4xl mb-4"></i><br>
+                        <span class="font-bold text-lg">ไม่สามารถเชื่อมต่อฐานข้อมูลได้</span><br>
+                        <span class="text-sm">กรุณาลองรีเฟรชหน้าเว็บใหม่อีกครั้ง</span>
+                    </div>
+                `;
+            }
+        }
+
+        // โหลดข้อมูลทันทีเมื่อเปิดเว็บ
+        loadDataFromExcel();
+
+        // 2. ฟังก์ชันหลักสำหรับสลับหน้าจอ (Router)
+        function render() {
+            const appDiv = document.getElementById('app-content');
+            if (state.view === 'home') appDiv.innerHTML = renderHome();
+            else if (state.view === 'detail') appDiv.innerHTML = renderNovelDetail();
+            else if (state.view === 'read') appDiv.innerHTML = renderReader();
+            window.scrollTo(0, 0); // เลื่อนกลับขึ้นบนสุดทุกครั้งที่เปลี่ยนหน้า
+        }
+
+        // --- เทมเพลต: หน้าแรก (Home) ---
+        function renderHome() {
+            let html = `
+                <div class="mb-8 flex justify-between items-end">
+                    <div>
+                        <h2 class="text-3xl font-bold text-gray-900 mb-2">อัปเดตนิยายเรื่องใหม่</h2>
+                        <p class="text-gray-500">เลือกอ่านนิยายสนุกๆ ได้เลยที่นี่ ฟรี!</p>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6">
+            `;
+
+            if (novels.length === 0) {
+                html += `<div class="col-span-full py-20 text-center text-gray-500 bg-white rounded-2xl border border-dashed border-gray-300">
+                    <i class="fa-solid fa-book-open-reader text-4xl text-gray-300 mb-3"></i><br>
+                    ยังไม่มีนิยายในระบบ<br><span class="text-sm">รอแอดมินอัปเดตข้อมูลสักครู่นะครับ</span>
+                </div>`;
+            }
+
+            // นำนิยายมาสร้างเป็นการ์ด (เรียงล่าสุดอยู่บน)
+            [...novels].reverse().forEach(novel => {
+                let displayViews = novel.views || 0;
+                html += `
+                    <div class="bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all overflow-hidden cursor-pointer group flex flex-col h-full border border-gray-100 transform hover:-translate-y-1" onclick="viewNovel('${novel.id}')">
+                        <div class="relative aspect-[2/3] overflow-hidden bg-gray-100">
+                            <img src="${novel.cover}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" onerror="this.src='https://via.placeholder.com/400x600?text=No+Cover'">
+                            <div class="absolute top-2 right-2 bg-black/70 text-white text-xs px-2.5 py-1 rounded-full font-medium backdrop-blur-sm shadow-sm">
+                                <i class="fa-solid fa-eye text-[10px] mr-1"></i> ${displayViews.toLocaleString()}
+                            </div>
+                            <div class="absolute bottom-0 left-0 w-full bg-gradient-to-t from-black/60 to-transparent p-3 pt-8">
+                                <span class="bg-green-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-sm uppercase tracking-wide">${novel.status}</span>
+                            </div>
+                        </div>
+                        <div class="p-4 flex flex-col flex-grow">
+                            <h3 class="font-bold text-gray-900 leading-tight mb-1 group-hover:text-green-600 line-clamp-2 transition-colors">${novel.title}</h3>
+                            <p class="text-sm text-gray-500 mb-3"><i class="fa-solid fa-pen-nib text-[10px] mr-1"></i> ${novel.author}</p>
+                            <div class="mt-auto pt-2 border-t border-gray-50 flex flex-wrap gap-1">
+                                ${novel.categories && novel.categories.length > 0 
+                                    ? novel.categories.slice(0, 2).map(cat => `<span class="text-[10px] bg-green-50 text-green-700 font-medium px-2 py-1 rounded-full">#${cat}</span>`).join('') 
+                                    : '<span class="text-[10px] text-gray-400">ไม่มีหมวดหมู่</span>'}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            return html + `</div>`;
+        }
+
+        // --- เทมเพลต: หน้ารายละเอียดนิยาย ---
+        function renderNovelDetail() {
+            const novel = novels.find(n => n.id === state.activeNovelId);
+            if (!novel) return goHome();
+
+            const novelChapters = chapters.filter(c => c.novelId === novel.id).sort((a, b) => a.chapterNumber - b.chapterNumber);
+            
+            let chaptersHtml = novelChapters.length === 0 
+                ? `<div class="p-8 text-center text-gray-500 bg-white border border-dashed border-gray-300 rounded-2xl">ยังไม่มีตอนให้เปิดอ่าน รอผู้เขียนอัปเดตเร็วๆ นี้นะครับ</div>` 
+                : '';
+            
+            novelChapters.forEach(ch => {
+                chaptersHtml += `
+                    <div onclick="readChapter('${ch.id}')" class="flex items-center justify-between p-4 bg-white border border-gray-100 hover:border-green-400 hover:shadow-md rounded-xl cursor-pointer transition-all mb-3 group">
+                        <div class="flex items-center gap-4">
+                            <div class="w-12 h-12 bg-green-50 text-green-600 rounded-full flex items-center justify-center font-bold text-lg group-hover:bg-green-600 group-hover:text-white transition-colors shadow-sm">
+                                ${ch.chapterNumber}
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-gray-800 group-hover:text-green-600 transition-colors text-lg">ตอนที่ ${ch.chapterNumber}: ${ch.title}</h4>
+                                <span class="text-xs text-gray-400">อ่านฟรี</span>
+                            </div>
+                        </div>
+                        <button class="w-10 h-10 rounded-full bg-gray-50 text-gray-400 group-hover:bg-green-50 group-hover:text-green-600 flex items-center justify-center transition-colors">
+                            <i class="fa-solid fa-chevron-right"></i>
+                        </button>
+                    </div>
+                `;
+            });
+
+            return `
+                <button onclick="goHome()" class="flex items-center gap-2 text-gray-500 hover:text-green-600 font-medium mb-6 transition-colors bg-white px-4 py-2 rounded-full shadow-sm w-fit border border-gray-100">
+                    <i class="fa-solid fa-arrow-left"></i> กลับหน้าแรก
+                </button>
+                
+                <div class="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden mb-10">
+                    <div class="flex flex-col md:flex-row">
+                        <div class="w-full md:w-1/3 lg:w-1/4 p-6 md:p-8 bg-gray-50 flex justify-center items-start border-b md:border-b-0 md:border-r border-gray-100">
+                            <img src="${novel.cover}" class="w-48 md:w-full rounded-xl shadow-lg aspect-[2/3] object-cover" onerror="this.src='https://via.placeholder.com/400x600?text=No+Cover'">
+                        </div>
+                        <div class="p-6 md:p-10 flex-1 flex flex-col">
+                            <div class="flex flex-wrap gap-2 mb-4">
+                                <span class="${novel.status === 'จบแล้ว' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'} text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wide">${novel.status}</span>
+                                ${novel.categories ? novel.categories.map(cat => `<span class="bg-gray-100 text-gray-600 text-xs font-medium px-3 py-1 rounded-full">#${cat}</span>`).join('') : ''}
+                            </div>
+                            
+                            <h1 class="text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 mb-3 leading-tight">${novel.title}</h1>
+                            <p class="text-lg text-gray-600 mb-8 flex items-center gap-2"><i class="fa-solid fa-pen-nib text-gray-400"></i> ผู้แต่ง: <span class="font-medium text-gray-900">${novel.author}</span></p>
+                            
+                            <div class="flex gap-8 mb-8 pb-8 border-b border-gray-100">
+                                <div class="text-center">
+                                    <div class="text-2xl font-bold text-gray-900 mb-1"><i class="fa-solid fa-eye text-green-600 mr-2 text-xl"></i>${(novel.views || 0).toLocaleString()}</div>
+                                    <div class="text-xs text-gray-500 uppercase tracking-wider font-medium">ยอดเข้าชม</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="text-2xl font-bold text-gray-900 mb-1"><i class="fa-solid fa-layer-group text-blue-600 mr-2 text-xl"></i>${novelChapters.length}</div>
+                                    <div class="text-xs text-gray-500 uppercase tracking-wider font-medium">จำนวนตอน</div>
+                                </div>
+                            </div>
+                            
+                            <h3 class="text-xl font-bold text-gray-900 mb-4">เรื่องย่อ</h3>
+                            <p class="text-gray-600 leading-relaxed novel-text bg-gray-50 p-5 rounded-2xl border border-gray-100 whitespace-pre-line">${novel.synopsis}</p>
+                            
+                            <div class="mt-8">
+                                ${novelChapters.length > 0 
+                                    ? `<button onclick="readChapter('${novelChapters[0].id}')" class="bg-green-600 hover:bg-green-700 text-white font-bold py-4 px-10 rounded-full shadow-lg shadow-green-200 transition-all transform hover:-translate-y-1 w-full md:w-auto text-lg"><i class="fa-solid fa-book-open-reader mr-2"></i> เริ่มอ่านตอนแรกเลย</button>` 
+                                    : ''}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="max-w-4xl mx-auto">
+                    <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center text-green-600"><i class="fa-solid fa-list-ul"></i></div>
+                        รายการตอนทั้งหมด
+                    </h3>
+                    <div class="flex flex-col">
+                        ${chaptersHtml}
+                    </div>
+                </div>
+            `;
+        }
+
+        // --- เทมเพลต: หน้าอ่านนิยาย (Reader) ---
+        function renderReader() {
+            const chapter = chapters.find(c => c.id === state.activeChapterId);
+            if (!chapter) return viewNovel(state.activeNovelId);
+            
+            const novel = novels.find(n => n.id === chapter.novelId);
+            const novelChapters = chapters.filter(c => c.novelId === novel.id).sort((a, b) => a.chapterNumber - b.chapterNumber);
+            const currentIndex = novelChapters.findIndex(c => c.id === chapter.id);
+            const prevCh = currentIndex > 0 ? novelChapters[currentIndex - 1] : null;
+            const nextCh = currentIndex < novelChapters.length - 1 ? novelChapters[currentIndex + 1] : null;
+
+            return `
+                <div class="${state.readerSettings.theme} min-h-screen -mt-4 sm:-mt-6 lg:-mt-8 -mx-4 sm:-mx-6 lg:-mx-8 p-4 sm:p-8 transition-colors duration-300" id="reader-container">
+                    
+                    <!-- เมนูเครื่องมือลอยตัว -->
+                    <div class="max-w-4xl mx-auto bg-black/10 backdrop-blur-md rounded-2xl p-3 sm:p-4 mb-8 flex flex-wrap justify-between items-center gap-4 sticky top-20 z-40 border border-white/20 shadow-sm">
+                        <button onclick="viewNovel('${novel.id}')" class="flex items-center gap-2 font-bold hover:opacity-70 px-3 py-1.5 rounded-lg transition-colors">
+                            <i class="fa-solid fa-arrow-left"></i> <span class="hidden sm:inline">สารบัญ</span>
+                        </button>
+                        
+                        <div class="flex items-center gap-2 sm:gap-4 bg-white/60 dark:bg-black/20 px-4 py-2 rounded-full backdrop-blur-sm">
+                            <span class="text-xs sm:text-sm font-bold opacity-70">ขนาดอักษร</span>
+                            <button onclick="changeFontSize(-2)" class="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-full bg-white shadow hover:bg-gray-100 text-black font-bold">A-</button>
+                            <span class="text-sm font-bold w-6 text-center" id="font-size-display">${state.readerSettings.fontSize}</span>
+                            <button onclick="changeFontSize(2)" class="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-full bg-white shadow hover:bg-gray-100 text-black font-bold">A+</button>
+                        </div>
+                        
+                        <div class="flex items-center gap-2">
+                            <button onclick="changeTheme('theme-light')" class="w-7 h-7 sm:w-8 sm:h-8 rounded-full border-2 border-gray-300 bg-white shadow-sm" title="พื้นหลังสว่าง"></button>
+                            <button onclick="changeTheme('theme-sepia')" class="w-7 h-7 sm:w-8 sm:h-8 rounded-full border-2 border-gray-300 bg-[#f4ecd8] shadow-sm" title="โหมดถนอมสายตา"></button>
+                            <button onclick="changeTheme('theme-dark')" class="w-7 h-7 sm:w-8 sm:h-8 rounded-full border-2 border-gray-500 bg-[#1a202c] shadow-sm" title="โหมดกลางคืน"></button>
+                        </div>
+                    </div>
+                    
+                    <!-- เนื้อหานิยาย -->
+                    <div class="max-w-3xl mx-auto bg-transparent">
+                        <h4 class="text-center font-bold opacity-50 mb-3 uppercase tracking-wider text-sm">${novel.title}</h4>
+                        <h1 class="text-3xl sm:text-4xl lg:text-5xl font-bold text-center mb-10 pb-8 border-b border-current border-opacity-10 leading-tight">ตอนที่ ${chapter.chapterNumber} : ${chapter.title}</h1>
+                        
+                        <div class="novel-text content-area transition-all duration-300 min-h-[50vh]" style="font-size: ${state.readerSettings.fontSize}px;">
+                            ${chapter.content}
+                        </div>
+                        
+                        <!-- ปุ่มเปลี่ยนตอนด้านล่าง -->
+                        <div class="mt-20 pt-8 border-t border-current border-opacity-10 flex justify-between items-center pb-24">
+                            ${prevCh 
+                                ? `<button onclick="readChapter('${prevCh.id}')" class="flex items-center gap-2 px-6 py-3.5 rounded-full bg-current bg-opacity-5 hover:bg-opacity-10 font-bold transition-colors"><i class="fa-solid fa-arrow-left"></i> <span class="hidden sm:inline">ตอนก่อนหน้า</span></button>` 
+                                : `<div></div>`}
+                            
+                            ${nextCh 
+                                ? `<button onclick="readChapter('${nextCh.id}')" class="flex items-center gap-2 px-8 py-3.5 rounded-full bg-green-600 text-white hover:bg-green-700 font-bold shadow-lg shadow-green-600/30 transition-all transform hover:-translate-y-1"><span class="hidden sm:inline">ตอนถัดไป</span> <i class="fa-solid fa-arrow-right"></i></button>` 
+                                : `<div class="opacity-40 font-bold px-6 py-3 flex flex-col items-center"><i class="fa-solid fa-flag-checkered text-xl mb-1"></i> จบตอนล่าสุดแล้ว</div>`}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // --- 3. การควบคุม (Actions) ---
+
+        // กลับหน้าแรก
+        window.goHome = function() { 
+            state.view = 'home'; 
+            render(); 
+        }
+        
+        // เข้าดูรายละเอียดนิยาย
+        window.viewNovel = function(id) {
+            // ถ้าย้ายมาจากหน้า Home ให้ทำการเพิ่มยอดวิว
+            if (state.view === 'home') {
+                // บวกตัวเลขบนหน้าเว็บก่อนทันที (ให้คนใช้งานรู้สึกว่าอัปเดตไว)
+                let n = novels.find(n => n.id === id);
+                if (n) n.views += 1;
+                
+                // ยิงคำสั่งไปอัปเดตลง Excel แบ็กกราว (ผู้ใช้ไม่ต้องรอ)
+                fetch(GOOGLE_SHEET_API_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ action: 'incrementView', id: id })
+                }).catch(e => console.error("Error updating views:", e));
+            }
+            
+            state.view = 'detail';
+            state.activeNovelId = id;
+            render();
+        }
+
+        // เข้าอ่านตอนที่กำหนด
+        window.readChapter = function(id) {
+            state.view = 'read';
+            state.activeChapterId = id;
+            const ch = chapters.find(c => c.id === id);
+            if(ch) state.activeNovelId = ch.novelId;
+            render();
+        }
+
+        // ปรับขนาดตัวอักษรหน้าอ่าน
+        window.changeFontSize = function(delta) {
+            let newSize = state.readerSettings.fontSize + delta;
+            // ลิมิตขนาดฟอนต์ไว้ไม่ให้เล็กไปหรือใหญ่ไป
+            if (newSize >= 14 && newSize <= 36) {
+                state.readerSettings.fontSize = newSize;
+                document.getElementById('font-size-display').innerText = newSize;
+                document.querySelector('.content-area').style.fontSize = newSize + 'px';
+            }
+        }
+
+        // เปลี่ยนธีมสีหน้าอ่าน
+        window.changeTheme = function(themeName) {
+            state.readerSettings.theme = themeName;
+            document.getElementById('reader-container').className = `${themeName} min-h-screen -mt-4 sm:-mt-6 lg:-mt-8 -mx-4 sm:-mx-6 lg:-mx-8 p-4 sm:p-8 transition-colors duration-300`;
+        }
+
+    </script>
+</body>
+</html>

@@ -55,7 +55,7 @@
     <!-- พื้นที่แสดงเนื้อหาหลัก -->
     <main id="app-content" class="flex-1 w-full max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
         <div class="py-20 text-center text-gray-500" id="loading-state">
-            <i class="fa-solid fa-spinner fa-spin text-4xl mb-4 text-green-600"></i><br>กำลังโหลด.....
+            <i class="fa-solid fa-spinner fa-spin text-4xl mb-4 text-green-600"></i><br>กำลังดึงข้อมูลนิยายสนุกๆ จากเซิร์ฟเวอร์...
         </div>
     </main>
 
@@ -78,7 +78,9 @@
             view: 'home', 
             activeNovelId: null,
             activeChapterId: null,
-            readerSettings: { fontSize: 18, theme: 'theme-light' }
+            readerSettings: { fontSize: 18, theme: 'theme-light' },
+            chapterCurrentPage: 1, // เก็บสถานะหน้าปัจจุบันของสารบัญ
+            chapterItemsPerPage: 50 // จำนวนตอนต่อ 1 หน้า (เปลี่ยนเป็น 50 แล้ว)
         };
 
         // --- 1. ระบบจัดการ URL (Routing) ---
@@ -96,8 +98,9 @@
                 state.view = 'home';
                 state.activeNovelId = null;
                 state.activeChapterId = null;
+                state.chapterCurrentPage = 1; // รีเซ็ตหน้ากลับเป็นหน้า 1
             } else {
-                const parts = hash.split('/').filter(Boolean); // แยกเป็นส่วนๆ เช่น ['Thriller-Paradise', 'ch1']
+                const parts = hash.split('/').filter(Boolean); // แยกเป็นส่วนๆ
                 
                 if (parts.length >= 2) {
                     const slug = parts[0];
@@ -108,6 +111,10 @@
                     
                     if (novel) {
                         if (action === 'home') {
+                            // เช็คว่าถ้าเปิดเรื่องใหม่ ให้รีเซ็ตหน้าสารบัญเป็นหน้า 1
+                            if (state.activeNovelId !== novel.id) {
+                                state.chapterCurrentPage = 1; 
+                            }
                             state.view = 'detail';
                             state.activeNovelId = novel.id;
                         } else if (action.startsWith('ch')) {
@@ -122,6 +129,7 @@
                                 // ถ้าหาตอนไม่เจอ ให้กลับไปหน้าสารบัญ
                                 state.view = 'detail';
                                 state.activeNovelId = novel.id;
+                                state.chapterCurrentPage = 1;
                             }
                         }
                     } else {
@@ -135,7 +143,6 @@
             render(); // สั่งให้วาดหน้าจอใหม่
         }
 
-        // ดักจับการเปลี่ยน URL
         window.addEventListener('hashchange', handleHashChange);
 
         // --- 2. ฟังก์ชันดึงข้อมูลจาก Google Sheets ---
@@ -151,7 +158,6 @@
                 }));
                 chapters = data.chapters || [];
                 
-                // เริ่มต้นการทำงานของ Router ทันทีที่โหลดข้อมูลเสร็จ (เพื่อเปิดหน้าที่ผู้ใช้พิมพ์ URL ค้างไว้)
                 handleHashChange(); 
 
             } catch (error) {
@@ -166,16 +172,18 @@
             }
         }
 
-        // โหลดข้อมูลทันทีเมื่อเปิดเว็บ
         loadDataFromExcel();
 
         // --- 3. ฟังก์ชันหลักสำหรับวาดหน้าจอ ---
-        function render() {
+        function render(scrollToTop = true) {
             const appDiv = document.getElementById('app-content');
             if (state.view === 'home') appDiv.innerHTML = renderHome();
             else if (state.view === 'detail') appDiv.innerHTML = renderNovelDetail();
             else if (state.view === 'read') appDiv.innerHTML = renderReader();
-            window.scrollTo(0, 0); 
+            
+            if (scrollToTop) {
+                window.scrollTo(0, 0); 
+            }
         }
 
         // --- เทมเพลต: หน้าแรก (Home) ---
@@ -197,7 +205,6 @@
                 </div>`;
             }
 
-            // นำนิยายมาสร้างเป็นการ์ด (เรียงล่าสุดอยู่บน)
             [...novels].reverse().forEach(novel => {
                 let displayViews = novel.views || 0;
                 html += `
@@ -226,18 +233,30 @@
             return html + `</div>`;
         }
 
-        // --- เทมเพลต: หน้ารายละเอียดนิยาย ---
+        // --- เทมเพลต: หน้ารายละเอียดนิยาย + ระบบแบ่งหน้า ---
         function renderNovelDetail() {
             const novel = novels.find(n => n.id === state.activeNovelId);
             if (!novel) return goHome();
 
+            // ดึงตอนและเรียงลำดับ
             const novelChapters = chapters.filter(c => c.novelId === novel.id).sort((a, b) => a.chapterNumber - b.chapterNumber);
             
-            let chaptersHtml = novelChapters.length === 0 
+            // --- ระบบแบ่งหน้า (Pagination) สำหรับฝั่งคนอ่าน ---
+            const totalItems = novelChapters.length;
+            const totalPages = Math.ceil(totalItems / state.chapterItemsPerPage);
+            
+            if (state.chapterCurrentPage > totalPages && totalPages > 0) state.chapterCurrentPage = totalPages;
+            if (state.chapterCurrentPage < 1) state.chapterCurrentPage = 1;
+
+            const startIndex = (state.chapterCurrentPage - 1) * state.chapterItemsPerPage;
+            const endIndex = startIndex + state.chapterItemsPerPage;
+            const paginatedChapters = novelChapters.slice(startIndex, endIndex);
+
+            let chaptersHtml = paginatedChapters.length === 0 
                 ? `<div class="p-8 text-center text-gray-500 bg-white border border-dashed border-gray-300 rounded-2xl">ยังไม่มีตอนให้เปิดอ่าน รอผู้เขียนอัปเดตเร็วๆ นี้นะครับ</div>` 
                 : '';
             
-            novelChapters.forEach(ch => {
+            paginatedChapters.forEach(ch => {
                 chaptersHtml += `
                     <div onclick="readChapter('${ch.id}')" class="flex items-center justify-between p-4 bg-white border border-gray-100 hover:border-green-400 hover:shadow-md rounded-xl cursor-pointer transition-all mb-3 group">
                         <div class="flex items-center gap-4">
@@ -245,16 +264,49 @@
                                 ${ch.chapterNumber}
                             </div>
                             <div>
-                                <h4 class="font-bold text-gray-800 group-hover:text-green-600 transition-colors text-lg">ตอนที่ ${ch.chapterNumber}: ${ch.title}</h4>
+                                <h4 class="font-bold text-gray-800 group-hover:text-green-600 transition-colors text-lg line-clamp-1">ตอนที่ ${ch.chapterNumber}: ${ch.title}</h4>
                                 <span class="text-xs text-gray-400">อ่านฟรี</span>
                             </div>
                         </div>
-                        <button class="w-10 h-10 rounded-full bg-gray-50 text-gray-400 group-hover:bg-green-50 group-hover:text-green-600 flex items-center justify-center transition-colors">
+                        <button class="w-10 h-10 rounded-full bg-gray-50 text-gray-400 group-hover:bg-green-50 group-hover:text-green-600 flex items-center justify-center transition-colors shrink-0">
                             <i class="fa-solid fa-chevron-right"></i>
                         </button>
                     </div>
                 `;
             });
+
+            // สร้างปุ่มแบ่งหน้า (Pagination UI)
+            let paginationHtml = '';
+            if (totalPages > 1) {
+                let pageButtons = '';
+                
+                // ให้แสดงหน้าใกล้เคียง
+                let startPage = Math.max(1, state.chapterCurrentPage - 2);
+                let endPage = Math.min(totalPages, state.chapterCurrentPage + 2);
+
+                if (state.chapterCurrentPage > 1) {
+                    pageButtons += `<button onclick="changeChapterPage(${state.chapterCurrentPage - 1})" class="px-4 py-2 bg-white border border-gray-200 rounded-lg hover:bg-green-50 hover:text-green-700 transition-colors font-medium"><i class="fa-solid fa-chevron-left mr-1"></i> ก่อนหน้า</button>`;
+                }
+
+                for (let i = startPage; i <= endPage; i++) {
+                    if (i === state.chapterCurrentPage) {
+                        pageButtons += `<button class="px-4 py-2 bg-green-600 text-white rounded-lg font-bold shadow-md transform scale-105">${i}</button>`;
+                    } else {
+                        pageButtons += `<button onclick="changeChapterPage(${i})" class="px-4 py-2 bg-white border border-gray-200 rounded-lg hover:bg-green-50 hover:text-green-700 transition-colors">${i}</button>`;
+                    }
+                }
+
+                if (state.chapterCurrentPage < totalPages) {
+                    pageButtons += `<button onclick="changeChapterPage(${state.chapterCurrentPage + 1})" class="px-4 py-2 bg-white border border-gray-200 rounded-lg hover:bg-green-50 hover:text-green-700 transition-colors font-medium">ถัดไป <i class="fa-solid fa-chevron-right ml-1"></i></button>`;
+                }
+
+                paginationHtml = `
+                    <div class="mt-8 flex flex-col items-center gap-4">
+                        <div class="flex gap-2 flex-wrap justify-center">${pageButtons}</div>
+                        <div class="text-sm text-gray-500">กำลังแสดงตอนที่ ${startIndex + 1} ถึง ${Math.min(endIndex, totalItems)} (จากทั้งหมด ${totalItems} ตอน)</div>
+                    </div>
+                `;
+            }
 
             return `
                 <button onclick="goHome()" class="flex items-center gap-2 text-gray-500 hover:text-green-600 font-medium mb-6 transition-colors bg-white px-4 py-2 rounded-full shadow-sm w-fit border border-gray-100">
@@ -281,7 +333,7 @@
                                     <div class="text-xs text-gray-500 uppercase tracking-wider font-medium">ยอดเข้าชม</div>
                                 </div>
                                 <div class="text-center">
-                                    <div class="text-2xl font-bold text-gray-900 mb-1"><i class="fa-solid fa-layer-group text-blue-600 mr-2 text-xl"></i>${novelChapters.length}</div>
+                                    <div class="text-2xl font-bold text-gray-900 mb-1"><i class="fa-solid fa-layer-group text-blue-600 mr-2 text-xl"></i>${totalItems}</div>
                                     <div class="text-xs text-gray-500 uppercase tracking-wider font-medium">จำนวนตอน</div>
                                 </div>
                             </div>
@@ -298,14 +350,20 @@
                     </div>
                 </div>
 
-                <div class="max-w-4xl mx-auto">
-                    <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
-                        <div class="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center text-green-600"><i class="fa-solid fa-list-ul"></i></div>
-                        รายการตอนทั้งหมด
-                    </h3>
+                <!-- สารบัญตอน -->
+                <div class="max-w-4xl mx-auto" id="chapter-list-section">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="text-2xl font-bold text-gray-900 flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center text-green-600"><i class="fa-solid fa-list-ul"></i></div>
+                            สารบัญตอนทั้งหมด
+                        </h3>
+                    </div>
+                    
                     <div class="flex flex-col">
                         ${chaptersHtml}
                     </div>
+                    
+                    ${paginationHtml}
                 </div>
             `;
         }
@@ -349,7 +407,7 @@
                         <h4 class="text-center font-bold opacity-50 mb-3 uppercase tracking-wider text-sm">${novel.title}</h4>
                         <h1 class="text-3xl sm:text-4xl lg:text-5xl font-bold text-center mb-10 pb-8 border-b border-current border-opacity-10 leading-tight">ตอนที่ ${chapter.chapterNumber} : ${chapter.title}</h1>
                         
-                        <div class="novel-text content-area transition-all duration-300 min-h-[50vh]" style="font-size: ${state.readerSettings.fontSize}px;">
+                        <div class="novel-text content-area transition-all duration-300 min-h-[50vh] whitespace-pre-line" style="font-size: ${state.readerSettings.fontSize}px;">
                             ${chapter.content}
                         </div>
                         
@@ -368,10 +426,9 @@
             `;
         }
 
-        // --- 4. การควบคุมและเปลี่ยนหน้า (เปลี่ยน URL) ---
+        // --- 4. การควบคุมและเปลี่ยนหน้า ---
 
         window.goHome = function() { 
-            // เปลี่ยน URL เป็น #/
             window.location.hash = '/'; 
         }
         
@@ -379,17 +436,30 @@
             let n = novels.find(n => n.id === id);
             if (!n) return;
 
-            // เพิ่มยอดวิว (เฉพาะกรณีที่ผู้ใช้กดมาจากหน้าแรก)
             if (state.view === 'home') {
-                n.views += 1; // บวกบนหน้าจอชั่วคราว
+                n.views += 1; 
                 fetch(GOOGLE_SHEET_API_URL, {
                     method: 'POST',
                     body: JSON.stringify({ action: 'incrementView', id: id })
                 }).catch(e => console.error("Error updating views:", e));
             }
             
-            // เปลี่ยน URL เป็น #/ชื่อเรื่อง/home
+            // รีเซ็ตหน้าสารบัญให้กลับเป็นหน้าแรกเมื่อผู้ใช้เลือกเปิดเรื่องใหม่
+            state.chapterCurrentPage = 1;
             window.location.hash = `/${getSlug(n.title)}/home`;
+        }
+
+        // ฟังก์ชันสำหรับเปลี่ยนหน้าในสารบัญ
+        window.changeChapterPage = function(pageNumber) {
+            state.chapterCurrentPage = pageNumber;
+            // สั่ง render แบบไม่เลื่อนไปบนสุดของจอ แต่ให้เลื่อนมาที่ตำแหน่งสารบัญ
+            render(false);
+            const chapterSection = document.getElementById('chapter-list-section');
+            if (chapterSection) {
+                const yOffset = -80; // เผื่อระยะ Navbar ลอยตัว
+                const y = chapterSection.getBoundingClientRect().top + window.pageYOffset + yOffset;
+                window.scrollTo({top: y, behavior: 'smooth'});
+            }
         }
 
         window.readChapter = function(id) {
@@ -398,11 +468,9 @@
             const n = novels.find(n => n.id === ch.novelId);
             if (!n) return;
 
-            // เปลี่ยน URL เป็น #/ชื่อเรื่อง/ch(เลขตอน)
             window.location.hash = `/${getSlug(n.title)}/ch${ch.chapterNumber}`;
         }
 
-        // ปรับขนาดตัวอักษรหน้าอ่าน
         window.changeFontSize = function(delta) {
             let newSize = state.readerSettings.fontSize + delta;
             if (newSize >= 14 && newSize <= 36) {
@@ -412,7 +480,6 @@
             }
         }
 
-        // เปลี่ยนธีมสีหน้าอ่าน
         window.changeTheme = function(themeName) {
             state.readerSettings.theme = themeName;
             document.getElementById('reader-container').className = `${themeName} min-h-screen -mt-4 sm:-mt-6 lg:-mt-8 -mx-4 sm:-mx-6 lg:-mx-8 p-4 sm:p-8 transition-colors duration-300`;
